@@ -1,0 +1,21 @@
+\chapter{CONSIDERAÇÕES FINAIS}\label{cap:conclusao}
+Ao longo deste estudo, foi avaliada uma modificação do método de Newton-Raphson, o \ac{FPMO}, em relação a outros algoritmos conhecidos na literatura. Pôde-se extrair uma série de conclusões importantes que fornecem perspectivas valiosas para a engenharia elétrica. Ao avaliar o tempo computacional, foi visto que os passos extras tomados para otimizar $\Delta X$ de fato reduziram o número médio de iterações, mas ao custo de aumentar o tempo computacional no geral, sendo o maior ponto negativo do método.
+
+Além disso, verificou-se um ganho marginal no fator de escalonamento máximo $\lambda_{max}$ em relação ao \ac{FPRET}, demonstrando um ganho insignificante de melhoria com os sistemas testes analisados. O \acs{FPPOL} obteve o melhor resultado no IEEE 33 Barras e pior no IEEE 14 Barras, indicando como esse ganho pode variar de sistema para sistema.
+
+Por outro lado, ao analisar os Mapas Fractais \ac{FPMO}, um lado positivo não percebido pelos outros testes foi obtido: um grande aumento na área de convergência em relação ao \ac{FPRET} e \acs{FPPOL}, indicando uma maior robustez numérica. 
+Uma vantagem para os algoritmos baseados em coordenadas retangulares foi uma melhor convergência para ângulos de fase variados, porém a fraqueza do \ac{FPRET} para uma maior gama de palpites iniciais para o módulo da tensão foi superada pelo \ac{FPMO}. 
+
+Resumindo, o FPMO apresentou um aumento significativo no tempo computacional e insignificante para $\lambda _{max}$. Seu potencial de melhoria na convergência numérica, evidenciado pelos Mapas Fractais, sugere que esse método de fato traz melhorias na robustez numérica. No entanto, para o problema específico do \ac{FP}, isso não foi aplicável, pois a boa escolha da aproximação inicial (próximo de $1\angle 0^\circ$) já garante uma convergência rápida e eficiente com métodos tradicionais. Portanto, embora o \ac{FPMO} ofereça vantagens teóricas, sua aplicabilidade prática para o problema em questão se provou ineficiente nos sistemas analisados devido ao aumento do esforço computacional e à eficácia já alcançada com métodos existentes. 
+
+
+\section{DIRETRIZES PARA TRABALHOS FUTUROS}
+
+Destaca-se como possíveis trabalhos futuros a serem abordados em outras pesquisas:\vspace{-1em}
+\begin{itemize}
+    \item Avaliação da dimensão Haussdorf dos fractais de diferentes métodos numéricos para \ac{FP}, podendo indicar alguma mensuração da estabilidade numérica;
+    \item Analisar os mapas fractais do \ac{FPMO} na formulação por injeção de correntes, que é mais rápida;
+    \item Entender por que diferentes sistemas podem reduzir ou aumentar a região de convergência com o aumento de carga com o mesmo algoritmo utilizado;
+    \item Analisar a viabilidade do \ac{FPMO} diretamente em coordenadas polares e para sistemas mal condicionados;
+    \item Explorar a análise fractal em sistemas mais complexos com controles de tensão e reativos.
+\end{itemize}
