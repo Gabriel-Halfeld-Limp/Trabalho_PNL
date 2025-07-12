@@ -1,5 +1,5 @@
 from pyomo.environ import *
-from power import *
+from power.models.electricity_models import *
 import numpy as np
 import pandas as pd
 
@@ -8,7 +8,8 @@ class PNL_OPF:
         if not isinstance(com_rede, bool):
             raise TypeError("O parâmetro 'com_rede' deve ser booleano (True ou False).")
         #Rede
-        self.net = network.ACtoDC #Transforma rede AC em DC
+        #self.net = network.ACtoDC #Transforma rede AC em DC
+        self.net = network
         self.com_rede = com_rede
 
         # Generators, Loads, Buses, Lines
@@ -97,6 +98,9 @@ class PNL_OPF:
                 return generation - flow_out + flow_in == load
             m.balance_with_net = Constraint(m.buses, rule=balance_with_net_rule, doc="Balance of Generation and Load with Network Rule")
 
+            def flow_max_rule(m, ln):
+                return (m.theta[m.line_to[ln]] - m.theta[m.line_from[ln]]) / m.line_x[ln] <= m.flow_max[ln]
+
         else: #com_rede == False, Balanço total
             def balance_without_net_rule(m):
                 generation = sum(m.p[g] for g in m.generators)
@@ -165,7 +169,10 @@ class PNL_OPF:
         """
         solver = SolverFactory(solver_name)
         results = solver.solve(self.model, tee=tee)
-        return results
+        if results.solver.termination_condition != TerminationCondition.optimal:
+            raise ValueError(f"Solver did not find an optimal solution: {results.solver.termination_condition}")
+        self._create_results()
+        return self.results
 
     
 
