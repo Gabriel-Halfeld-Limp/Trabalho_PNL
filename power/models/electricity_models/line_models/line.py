@@ -63,12 +63,12 @@ class Line:
 
     @property
     def impedance(self) -> complex:
-        """Impedância da linha (ohms)"""
+        """Impedância da linha (pu)"""
         return complex(self.resistance, self.reactance)
 
     @property
     def admittance(self) -> complex:
-        """Admitância da linha (S)"""
+        """Admitância da linha (pu)"""
         return 1 / self.impedance if self.impedance != 0 else 0
 
     @property

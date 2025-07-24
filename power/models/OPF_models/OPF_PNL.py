@@ -4,13 +4,14 @@ import numpy as np
 import pandas as pd
 
 class PNL_OPF:
-    def __init__(self, network: Network, com_rede=True):
+    def __init__(self, network: Network, com_rede=True, is_cubic=True):
         if not isinstance(com_rede, bool):
             raise TypeError("O parâmetro 'com_rede' deve ser booleano (True ou False).")
         #Rede
         #self.net = network.ACtoDC #Transforma rede AC em DC
         self.net = network
         self.com_rede = com_rede
+        self.is_cubic = is_cubic
 
         # Generators, Loads, Buses, Lines
         self.generators = self.net.generators
@@ -36,31 +37,30 @@ class PNL_OPF:
         self.model.lines = Set(initialize=[ln.name for ln in self.lines], doc="Conjunto de linhas") # Cria conjunto de linhas    
 
     def _create_parameters(self):
-        #Generators
         m = self.model
-        m.generator_bus = Param(m.generators, initialize={g.name: g.bus.name for g in self.generators}) #Localização dos geradores
-        m.generator_pmax = Param(m.generators, initialize={g.name: g.p_max for g in self.generators}) #Geração Máxima
-        m.generator_pmin = Param(m.generators, initialize={g.name: g.p_min for g in self.generators}) #Geraçã Mínima
-        m.generator_cost_a = Param(m.generators, initialize={g.name: g.cost_a for g in self.generators}) #Custo a
-        m.generator_cost_b = Param(m.generators, initialize={g.name: g.cost_b for g in self.generators})#Custo b
-        m.generator_cost_c = Param(m.generators, initialize={g.name: g.cost_c for g in self.generators})#Custo c
 
-        #Loads
-        m.load_bus = Param(m.loads, initialize={l.name: l.bus.name for l in self.loads})
-        m.load_p= Param(m.loads, initialize={l.name: l.p for l in self.loads})
+        # Generators
+        m.generator_bus = Param(m.generators, initialize={g.name: g.bus.name for g in self.generators}, within=Any)  # Localização dos geradores
+        m.generator_pmax = Param(m.generators, initialize={g.name: g.p_max for g in self.generators}, within=Reals)  # Geração Máxima
+        m.generator_pmin = Param(m.generators, initialize={g.name: g.p_min for g in self.generators}, within=Reals)  # Geração Mínima
+        m.generator_cost_a = Param(m.generators, initialize={g.name: g.cost_a for g in self.generators}, within=Reals)  # Custo a
+        m.generator_cost_b = Param(m.generators, initialize={g.name: g.cost_b for g in self.generators}, within=Reals)  # Custo b
+        m.generator_cost_c = Param(m.generators, initialize={g.name: g.cost_c for g in self.generators}, within=Reals)  # Custo c
 
-        #Lines
-        m.line_from = Param(m.lines, initialize={ln.name: ln.from_bus.name for ln in self.lines}) #Barra de
-        m.line_to = Param(m.lines, initialize={ln.name: ln.to_bus.name for ln in self.lines}) #Barra para
-        m.line_x = Param(m.lines, initialize={ln.name: ln.x for ln in self.lines}) #Reatância da linha
+        # Loads
+        m.load_bus = Param(m.loads, initialize={l.name: l.bus.name for l in self.loads}, within=Any)
+        m.load_p = Param(m.loads, initialize={l.name: l.p for l in self.loads}, within=Reals)
 
-        if self.com_rede == True:
-            m.flow_max = Param(m.lines, initialize={ln.name: ln.flow_max_pu for ln in self.lines}) #Fluxo máximo nas linhas
-        else:
-            pass
+        # Lines
+        m.line_from = Param(m.lines, initialize={ln.name: ln.from_bus.name for ln in self.lines}, within=Any)  # Barra de
+        m.line_to = Param(m.lines, initialize={ln.name: ln.to_bus.name for ln in self.lines}, within=Any)      # Barra para
+        m.line_x = Param(m.lines, initialize={ln.name: ln.reactance for ln in self.lines}, within=Reals)       # Reatância da linha
 
-        #Bus
-        m.bus_type = Param(m.buses, initialize={b.name: b.bus_type for b in self.buses}) #Tipo de barra.
+        if self.com_rede:
+            m.flow_max = Param(m.lines, initialize={ln.name: ln.flow_max_pu for ln in self.lines}, within=Reals)  # Fluxo máximo nas linhas
+
+        # Bus
+        m.bus_type = Param(m.buses, initialize={b.name: b.bus_type for b in self.buses}, within=Any)  # Tipo de barra
 
     def _create_variables(self):
         m = self.model
@@ -74,7 +74,11 @@ class PNL_OPF:
 
         #Buses
         if self.com_rede == True:
-            m.theta = Var(m.buses, domain=Reals, doc=f"Bus angles ref to Slack")
+            def theta_bounds(m, g):
+                theta_min = -np.pi/2
+                theta_max = np.pi/2
+                return (theta_min, theta_max)
+            m.theta = Var(m.buses, bounds=theta_bounds, doc=f"Bus angles ref to Slack")
             # Identifica barra slack
             slack_bus = next((b for b in m.buses if m.bus_type[b] == "Slack"), None)
             if slack_bus is None:
@@ -88,18 +92,25 @@ class PNL_OPF:
             def balance_with_net_rule(m, bus):
                 generation = sum(m.p[g] if m.generator_bus[g] == bus else 0 for g in m.generators)
                 load = sum(m.load_p[l] if m.load_bus[l] == bus else 0 for l in m.loads)
-                #Fluxos que vêm e vão (f=(theta1 - theta2)/X12)
+                
+                # Fluxos que saem da barra
                 flow_out = sum(
-                    (m.theta[m.line_to[ln]] - m.theta[m.line_from[ln]]) / m.line_x[ln]
+                    (m.theta[bus] - m.theta[m.line_to[ln]]) / m.line_x[ln]
                     if m.line_from[ln] == bus else 0 for ln in m.lines)
+                
+                # Fluxos que entram na barra
                 flow_in = sum(
-                    (m.theta[m.line_from[ln]] - m.theta[m.line_to[ln]]) / m.line_x[ln]
+                    (m.theta[m.line_from[ln]] - m.theta[bus]) / m.line_x[ln]
                     if m.line_to[ln] == bus else 0 for ln in m.lines)
+
                 return generation - flow_out + flow_in == load
             m.balance_with_net = Constraint(m.buses, rule=balance_with_net_rule, doc="Balance of Generation and Load with Network Rule")
 
             def flow_max_rule(m, ln):
-                return (m.theta[m.line_to[ln]] - m.theta[m.line_from[ln]]) / m.line_x[ln] <= m.flow_max[ln]
+                flow = (m.theta[m.line_from[ln]] - m.theta[m.line_to[ln]]) / m.line_x[ln]
+                return (-m.flow_max[ln], flow, m.flow_max[ln])
+            m.flow_max_constraint = Constraint(m.lines, rule=flow_max_rule, doc="Flow limits of each branch") 
+
 
         else: #com_rede == False, Balanço total
             def balance_without_net_rule(m):
@@ -110,16 +121,26 @@ class PNL_OPF:
 
     def _create_objective(self):
         m = self.model
-        def objective_rule(m):
-            total_cost = 0
-            for g in m.generators:
-                total_cost += (
-                    m.generator_cost_a[g] * m.p[g] +
-                    (m.generator_cost_b[g] / 2) * m.p[g]**2 +
-                    (m.generator_cost_c[g] / 3) * m.p[g]**3
-                )
-            return total_cost
-
+        if self.is_cubic == True:
+            def objective_rule(m):
+                total_cost = 0
+                for g in m.generators:
+                    total_cost += (
+                        m.generator_cost_a[g] * m.p[g] +
+                        (m.generator_cost_b[g] / 2) * m.p[g]**2 +
+                        (m.generator_cost_c[g] / 3) * m.p[g]**3
+                    )
+                return total_cost
+        else:
+            def objective_rule(m):
+                total_cost = 0
+                for g in m.generators:
+                    total_cost += (
+                        m.generator_cost_a[g] +
+                        m.generator_cost_b[g] * m.p[g] +
+                        m.generator_cost_c[g] * m.p[g]**2
+                    )
+                return total_cost
         m.obj = Objective(rule=objective_rule, sense=minimize)
 
     def _create_results(self):
@@ -129,18 +150,27 @@ class PNL_OPF:
         """
         m = self.model
         # Calcula o custo real com base nas variáveis resolvidas
-        total_cost = 0
+        total_cost_quad = 0
         for g in m.generators:
-            total_cost += (
-                m.generator_cost_a[g] * m.p[g].value +
-                (m.generator_cost_b[g] / 2) * m.p[g].value**2 +
-                (m.generator_cost_c[g] / 3) * m.p[g].value**3
+            total_cost_quad += (
+                m.generator_cost_a[g] +
+                (m.generator_cost_b[g]) * m.p[g].value +
+                (m.generator_cost_c[g]) * m.p[g].value**2
             )
+
+        total_cost_cubic = 0
+        for g in m.generators:
+            total_cost_cubic += (
+                m.generator_cost_a[g] * m.p[g].value+
+                (m.generator_cost_b[g]/2) * m.p[g].value**2 +
+                (m.generator_cost_c[g]/3) * m.p[g].value**3
+            )            
 
         # Cria um dicionário para os resultados
         results_dict = {
             'Objective Value': value(m.obj),
-            'Total Cost': f'Total Cost: $ {total_cost}',
+            'Total Cost Quad': f'Total Cost Quad: $ {total_cost_quad}',
+            'Total Cost Cubic': f'Total Cost Cubic $ {total_cost_cubic}',
             'Generators Power (pu)': {g: value(m.p[g]) for g in m.generators}
         }
 
